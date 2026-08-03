@@ -1,0 +1,53 @@
+.watermark {
+  position: absolute;
+
+  top: 0;
+  left: 0;
+
+  color: rgba(255,255,255,.18);
+
+  font-size: 18px;
+  font-weight: bold;
+
+  white-space: nowrap;
+
+  user-select: none;
+
+  animation: moveWatermark 18s linear infinite;
+
+  text-shadow:
+    1px 1px 2px black,
+    0 0 5px black;
+}
+
+@keyframes moveWatermark {
+
+  0%{
+    transform:translate(-15vw,-10vh) rotate(-20deg);
+  }
+
+  20%{
+    transform:translate(70vw,5vh) rotate(-12deg);
+  }
+
+  40%{
+    transform:translate(55vw,55vh) rotate(15deg);
+  }
+
+  60%{
+    transform:translate(15vw,70vh) rotate(-10deg);
+  }
+
+  80%{
+    transform:translate(75vw,25vh) rotate(12deg);
+  }
+
+  100%{
+    transform:translate(-15vw,-10vh) rotate(-20deg);
+  }
+
+}
+
+.watermark div{
+  margin:6px 0;
+}
