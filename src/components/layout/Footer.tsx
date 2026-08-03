@@ -451,7 +451,7 @@ export default function Footer() {
             Developed by{" "}
 
             <a
-              href="https://m-w-groups.vercel.app/"
+              href="https://ahmede-tech.vercel.app/"
               target="_blank"
               rel="noopener noreferrer"
               className="
