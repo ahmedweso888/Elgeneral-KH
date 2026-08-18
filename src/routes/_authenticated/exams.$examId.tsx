@@ -22,34 +22,22 @@ export const Route = createFileRoute(
 
 function ExamPage() {
   const { examId } = Route.useParams();
-
   const navigate = useNavigate();
-
   const { user } = useAuth();
 
-  const [exam, setExam] =
-    useState<any>(null);
+  const [exam, setExam] = useState<any>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [attemptId, setAttemptId] = useState<string | null>(null);
 
-  const [questions, setQuestions] =
-    useState<any[]>([]);
-
-  const [answers, setAnswers] =
-    useState<Record<number, string>>({});
-
-  const [attemptId, setAttemptId] =
-    useState<string | null>(null);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [submitting, setSubmitting] =
-    useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadExam();
     }
-  }, [user]);
+  }, [user, examId]);
 
   async function loadExam() {
     if (!user) return;
@@ -57,6 +45,10 @@ function ExamPage() {
     setLoading(true);
 
     try {
+      // ==============================
+      // تحميل الامتحان
+      // ==============================
+
       const {
         data: examData,
         error: examError,
@@ -67,7 +59,20 @@ function ExamPage() {
         .eq("is_published", true)
         .single();
 
-      if (examError) throw examError;
+      if (examError) {
+        console.error("EXAM LOAD ERROR:", examError);
+        throw examError;
+      }
+
+      if (!examData) {
+        throw new Error("الامتحان غير موجود");
+      }
+
+      setExam(examData);
+
+      // ==============================
+      // التحقق من وقت الامتحان
+      // ==============================
 
       const now = new Date();
 
@@ -97,30 +102,93 @@ function ExamPage() {
         return;
       }
 
-      const { count } = await supabase
+      // ==============================
+      // البحث عن محاولة حالية
+      // ==============================
+
+      const {
+        data: existingAttempt,
+        error: existingAttemptError,
+      } = await supabase
         .from("exam_attempts")
-        .select("*", {
-          count: "exact",
-          head: true,
-        })
+        .select("*")
         .eq("exam_id", examId)
-        .eq("student_id", user.id);
+        .eq("student_id", user.id)
+        .order("started_at", {
+          ascending: false,
+        })
+        .limit(1)
+        .maybeSingle();
 
-      if (
-        examData.attempts_allowed &&
-        (count ?? 0) >=
-          examData.attempts_allowed
-      ) {
-        generalToast.error(
-          "لقد استنفذت جميع المحاولات"
-        );
-
-        navigate({
-          to: "/exams",
-        });
-
-        return;
+      if (existingAttemptError) {
+        throw existingAttemptError;
       }
+
+      let currentAttempt = existingAttempt;
+
+      // ==============================
+      // حساب عدد المحاولات
+      // ==============================
+
+      const { count, error: countError } =
+        await supabase
+          .from("exam_attempts")
+          .select("*", {
+            count: "exact",
+            head: true,
+          })
+          .eq("exam_id", examId)
+          .eq("student_id", user.id);
+
+      if (countError) {
+        throw countError;
+      }
+
+      // ==============================
+      // لو مفيش محاولة حالية ننشئ واحدة
+      // ==============================
+
+      if (!currentAttempt) {
+        if (
+          examData.attempts_allowed &&
+          (count ?? 0) >= examData.attempts_allowed
+        ) {
+          generalToast.error(
+            "لقد استنفذت جميع المحاولات"
+          );
+
+          navigate({
+            to: "/exams",
+          });
+
+          return;
+        }
+
+        const {
+          data: newAttempt,
+          error: attemptError,
+        } = await supabase
+          .from("exam_attempts")
+          .insert({
+            exam_id: examId,
+            student_id: user.id,
+            total_marks: examData.total_marks,
+          })
+          .select()
+          .single();
+
+        if (attemptError) {
+          throw attemptError;
+        }
+
+        currentAttempt = newAttempt;
+      }
+
+      setAttemptId(currentAttempt.id);
+
+      // ==============================
+      // تحميل الأسئلة
+      // ==============================
 
       const {
         data: questionsData,
@@ -131,35 +199,21 @@ function ExamPage() {
         .eq("exam_id", examId)
         .order("question_number");
 
-      if (questionsError)
+      if (questionsError) {
         throw questionsError;
+      }
 
-      const {
-        data: attempt,
-        error: attemptError,
-      } = await supabase
-        .from("exam_attempts")
-        .insert({
-          exam_id: examId,
-          student_id: user.id,
-          total_marks:
-            examData.total_marks,
-        })
-        .select()
-        .single();
-
-      if (attemptError)
-        throw attemptError;
-
-      setAttemptId(attempt.id);
-
-      setExam(examData);
-
-      setQuestions(
-        questionsData ?? []
-      );
+      setQuestions(questionsData ?? []);
     } catch (err: any) {
-      generalToast.error(err.message);
+      console.error("EXAM PAGE ERROR:", err);
+
+      setExam(null);
+      setQuestions([]);
+      setAttemptId(null);
+
+      generalToast.error(
+        err?.message || "حدث خطأ أثناء تحميل الامتحان"
+      );
     } finally {
       setLoading(false);
     }
@@ -174,252 +228,297 @@ function ExamPage() {
       [questionNumber]: answer,
     }));
   }
-async function submitExam() {
-  if (!user || !attemptId) return;
 
-  setSubmitting(true);
+  async function submitExam() {
+    if (!user || !attemptId) return;
 
-  try {
-    //----------------------------------
-    // حفظ الإجابات
-    //----------------------------------
+    setSubmitting(true);
 
-    const answersToInsert = questions.map(
-      (question) => ({
-        attempt_id: attemptId,
+    try {
+      // ==============================
+      // حفظ الإجابات
+      // ==============================
 
-        exam_id: examId,
+      const answersToInsert = questions.map(
+        (question) => ({
+          attempt_id: attemptId,
+          exam_id: examId,
+          student_id: user.id,
+          question_number:
+            question.question_number,
+          selected_answer:
+            answers[
+              question.question_number
+            ] ?? "",
+          answered_at:
+            new Date().toISOString(),
+        })
+      );
 
-        student_id: user.id,
+      const { error: answersError } =
+        await supabase
+          .from("exam_answers")
+          .insert(answersToInsert);
 
-        question_number:
-          question.question_number,
+      if (answersError) {
+        throw answersError;
+      }
 
-        selected_answer:
-          answers[
-            question.question_number
-          ] ?? "",
+      // ==============================
+      // حساب النتيجة
+      // ==============================
 
-        answered_at:
-          new Date().toISOString(),
-      })
-    );
+      const {
+        data: result,
+        error,
+      } = await supabase.functions.invoke(
+        "calculate-results",
+        {
+          body: {
+            attemptId,
+          },
+        }
+      );
 
-    const { error: answersError } =
-      await supabase
-        .from("exam_answers")
-        .insert(answersToInsert);
+      if (error) {
+        throw error;
+      }
 
-    if (answersError)
-      throw answersError;
+      if (!result?.success) {
+        throw new Error(
+          result?.error ||
+            "فشل حساب نتيجة الامتحان"
+        );
+      }
 
-    //----------------------------------
-    // حساب النتيجة بالكامل
-    //----------------------------------
+      generalToast.success(
+        "تم تسليم الامتحان بنجاح"
+      );
 
-    const {
-  data: result,
-  error,
-} = await supabase.functions.invoke(
-  "calculate-results",
-  {
-    body: {
-      attemptId,
-    },
+      navigate({
+        to: "/exams/$examId/result",
+        params: {
+          examId,
+        },
+        search: {
+          attemptId,
+        },
+      });
+    } catch (err: any) {
+      console.error(
+        "SUBMIT EXAM ERROR:",
+        err
+      );
+
+      generalToast.error(
+        err?.message ||
+          "حدث خطأ أثناء تسليم الامتحان"
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
-);
 
-if (error) throw error;
+  // ==============================
+  // Loading
+  // ==============================
 
-if (!result.success) {
-  throw new Error(result.error);
-}
-
-    generalToast.success(
-      "تم تسليم الامتحان بنجاح"
-    );
-
-    navigate({
-      to: "/exams/$examId/result",
-
-      params: {
-        examId,
-      },
-
-      search: {
-        attemptId,
-      },
-    });
-  } catch (err: any) {
-    generalToast.error(err.message);
-  } finally {
-    setSubmitting(false);
-  }
-}
-if (loading) {
-  return (
-    <div className="flex justify-center py-20 text-xl font-bold">
-      جاري تحميل الامتحان...
-    </div>
-  );
-}
-
-return (
-  <div className="container mx-auto py-8 max-w-5xl">
-
-    <Card className="p-6 mb-8">
-
-      <h1 className="text-3xl font-black">
-        {exam.title}
-      </h1>
-
-      <p className="text-muted-foreground mt-2">
-        {exam.description}
-      </p>
-
-      <div className="mt-4 flex gap-6 text-sm">
-
-        <span>
-          ⏱ {exam.duration} دقيقة
-        </span>
-
-        <span>
-          📝 {questions.length} سؤال
-        </span>
-
-        <span>
-          ⭐ {exam.total_marks} درجة
-        </span>
-
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20 text-xl font-bold">
+        جاري تحميل الامتحان...
       </div>
+    );
+  }
 
-    </Card>
+  // ==============================
+  // Exam not found
+  // ==============================
 
-    <div className="space-y-8">
+  if (!exam) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <h1 className="text-2xl font-bold">
+          تعذر تحميل الامتحان
+        </h1>
 
-      {questions.map((question) => (
+        <p className="mt-2 text-muted-foreground">
+          الامتحان غير موجود أو غير متاح حاليًا.
+        </p>
 
-        <Card
-          key={question.id}
-          className="p-6"
+        <Button
+          className="mt-6"
+          onClick={() =>
+            navigate({
+              to: "/exams",
+            })
+          }
         >
+          العودة للامتحانات
+        </Button>
+      </div>
+    );
+  }
 
-          <div className="mb-5">
+  // ==============================
+  // Exam UI
+  // ==============================
 
-            <h2 className="text-xl font-bold">
+  return (
+    <div className="container mx-auto max-w-5xl py-8">
 
-              السؤال {question.question_number}
+      <Card className="mb-8 p-6">
 
-            </h2>
+        <h1 className="text-3xl font-black">
+          {exam.title}
+        </h1>
 
-            {question.question_text && (
+        {exam.description && (
+          <p className="mt-2 text-muted-foreground">
+            {exam.description}
+          </p>
+        )}
 
-              <p className="mt-3 text-lg">
+        <div className="mt-4 flex gap-6 text-sm">
 
-                {question.question_text}
+          <span>
+            ⏱ {exam.duration} دقيقة
+          </span>
 
-              </p>
+          <span>
+            📝 {questions.length} سؤال
+          </span>
 
-            )}
+          <span>
+            ⭐ {exam.total_marks} درجة
+          </span>
 
-          </div>
+        </div>
 
-          {question.question_image && (
+      </Card>
 
-            <img
-              src={question.question_image}
-              className="rounded-lg border mb-5 w-full max-h-[500px] object-contain"
-            />
+      <div className="space-y-8">
 
-          )}
+        {questions.map((question) => (
 
-          <RadioGroup
-            value={
-              answers[
-                question.question_number
-              ] ?? ""
-            }
-            onValueChange={(value) =>
-              changeAnswer(
-                question.question_number,
-                value
-              )
-            }
+          <Card
+            key={question.id}
+            className="p-6"
           >
 
-            <div className="space-y-4">
+            <div className="mb-5">
 
-              {[
-                {
-                  key: "A",
-                  value:
-                    question.option_a,
-                },
-                {
-                  key: "B",
-                  value:
-                    question.option_b,
-                },
-                {
-                  key: "C",
-                  value:
-                    question.option_c,
-                },
-                {
-                  key: "D",
-                  value:
-                    question.option_d,
-                },
-              ].map((option) => (
+              <h2 className="text-xl font-bold">
+                السؤال {question.question_number}
+              </h2>
 
-                <div
-                  key={option.key}
-                  className="flex items-center gap-3 border rounded-lg p-4 hover:bg-muted cursor-pointer"
-                >
-
-                  <RadioGroupItem
-                    value={option.key}
-                    id={`${question.id}-${option.key}`}
-                  />
-
-                  <Label
-                    htmlFor={`${question.id}-${option.key}`}
-                    className="cursor-pointer flex-1 text-base"
-                  >
-                    {option.value}
-                  </Label>
-
-                </div>
-
-              ))}
+              {question.question_text && (
+                <p className="mt-3 text-lg">
+                  {question.question_text}
+                </p>
+              )}
 
             </div>
 
-          </RadioGroup>
+            {question.question_image && (
+              <img
+                src={question.question_image}
+                alt={`السؤال ${question.question_number}`}
+                className="mb-5 w-full max-h-[500px] rounded-lg border object-contain"
+              />
+            )}
 
-        </Card>
+            <RadioGroup
+              value={
+                answers[
+                  question.question_number
+                ] ?? ""
+              }
+              onValueChange={(value) =>
+                changeAnswer(
+                  question.question_number,
+                  value
+                )
+              }
+            >
 
-      ))}
+              <div className="space-y-4">
+
+                {[
+                  {
+                    key: "A",
+                    value:
+                      question.option_a,
+                  },
+                  {
+                    key: "B",
+                    value:
+                      question.option_b,
+                  },
+                  {
+                    key: "C",
+                    value:
+                      question.option_c,
+                  },
+                  {
+                    key: "D",
+                    value:
+                      question.option_d,
+                  },
+                ].map((option) => (
+
+                  <div
+                    key={option.key}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border p-4 hover:bg-muted"
+                  >
+
+                    <RadioGroupItem
+                      value={option.key}
+                      id={`${question.id}-${option.key}`}
+                    />
+
+                    <Label
+                      htmlFor={`${question.id}-${option.key}`}
+                      className="flex-1 cursor-pointer text-base"
+                    >
+                      {option.value}
+                    </Label>
+
+                  </div>
+
+                ))}
+
+              </div>
+
+            </RadioGroup>
+
+          </Card>
+
+        ))}
+
+      </div>
+
+      <div className="mt-10 flex justify-center">
+
+        <Button
+          size="lg"
+          disabled={
+            submitting ||
+            !attemptId ||
+            questions.length === 0
+          }
+          onClick={submitExam}
+          className="px-10"
+        >
+
+          {submitting
+            ? "جاري التسليم..."
+            : "تسليم الامتحان"}
+
+        </Button>
+
+      </div>
 
     </div>
-
-    <div className="mt-10 flex justify-center">
-
-      <Button
-        size="lg"
-        disabled={submitting}
-        onClick={submitExam}
-        className="px-10"
-      >
-
-        {submitting
-          ? "جارى التسليم..."
-          : "تسليم الامتحان"}
-
-      </Button>
-
-    </div>
-
-  </div>
-);
+  );
 }

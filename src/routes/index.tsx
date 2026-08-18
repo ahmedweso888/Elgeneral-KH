@@ -135,7 +135,7 @@ function Landing() {
           animate="visible"
           className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 text-xs font-semibold text-accent-foreground"
         >
-          <Sparkles className="h-4 w-4" /> اول منصة تاريخ مدعومة بالذكاء الاصطناعي
+          
         </motion.div>
         <motion.h1
           variants={fadeUp}
