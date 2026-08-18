@@ -129,14 +129,7 @@ function Landing() {
       </header>
 
       <section className="mx-auto max-w-6xl px-6 pt-16 pb-12 text-center">
-        <motion.div
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 text-xs font-semibold text-accent-foreground"
-        >
-          
-        </motion.div>
+       
         <motion.h1
           variants={fadeUp}
           initial="hidden"
