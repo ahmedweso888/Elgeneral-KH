@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion, useMotionValue, useTransform, type Variants } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { BrainCircuit, Castle, Clock, MessageSquareText, Sparkles, Target, Move } from "lucide-react";
+import { BrainCircuit, Castle, Clock, MessageSquareText, Book, Target, Move } from "lucide-react";
 
 import teacherHeroUrl from "@/assests/teacher-hero.png";
 import teacherCutoutUrl from "@/assests/teacher-cutout.png";
@@ -43,7 +43,7 @@ const features = [
   { icon: Castle, title: "مملكتك التاريخية", text: "اكسب الذهب والنقاط وابنِ مملكتك وتنافس مع زملائك على المتصدرين." },
   { icon: MessageSquareText, title: "مساعد التدريس الذكي", text: "اسأل أي سؤال واحصل على إجابة بأسلوب الأستاذ خالد، مع أسئلة متابعة." },
   { icon: Target, title: "توقع الامتحان", text: "توقعات مبنية على امتحانات السنوات السابقة وأنماط أسئلة الأستاذ." },
-  { icon: Sparkles, title: "محتوى الجنرال", text: "كل المواد من شرح وأسئلة من إعداد الأستاذ خالد هاشم شخصياً." },
+  { icon: Book, title: "محتوى الجنرال", text: "كل المواد من شرح وأسئلة من إعداد الأستاذ خالد هاشم شخصياً." },
 ];
 
 const fadeUp: Variants = {
