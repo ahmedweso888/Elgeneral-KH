@@ -1,77 +1,61 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import "@supabase/functions-js/edge-runtime.d.ts";
+import { withSupabase } from "@supabase/server";
 
 import {
   IVSClient,
   CreateChannelCommand,
   CreateStreamKeyCommand,
 } from "npm:@aws-sdk/client-ivs";
+import { requireAdmin } from "../_shared/require-admin.ts";
 
-const client = new IVSClient({
-  region: Deno.env.get("AWS_REGION"),
-  credentials: {
-    accessKeyId: Deno.env.get("AWS_ACCESS_KEY_ID")!,
-    secretAccessKey: Deno.env.get("AWS_SECRET_ACCESS_KEY")!,
-  },
-});
+export default {
+  fetch: withSupabase({ auth: "user" }, async (_req, ctx) => {
+    const authorization = await requireAdmin(ctx);
 
-serve(async (_req) => {
-  try {
-    //----------------------------------
-    // Create Channel
-    //----------------------------------
-
-    const channel = await client.send(
-      new CreateChannelCommand({
-        latencyMode: "LOW",
-        type: "STANDARD",
-        authorized: false,
-        name: `live-${crypto.randomUUID()}`,
-      })
-    );
-
-    if (!channel.channel?.arn) {
-      throw new Error("Channel creation failed");
+    if (!authorization.ok) {
+      return authorization.response;
     }
 
-    //----------------------------------
-    // Create Stream Key
-    //----------------------------------
+    try {
+      const client = new IVSClient({
+        region: Deno.env.get("AWS_REGION"),
+        credentials: {
+          accessKeyId: Deno.env.get("AWS_ACCESS_KEY_ID")!,
+          secretAccessKey: Deno.env.get("AWS_SECRET_ACCESS_KEY")!,
+        },
+      });
 
-    const streamKey = await client.send(
-      new CreateStreamKeyCommand({
-        channelArn: channel.channel.arn,
-      })
-    );
+      const channel = await client.send(
+        new CreateChannelCommand({
+          latencyMode: "LOW",
+          type: "STANDARD",
+          authorized: false,
+          name: `live-${crypto.randomUUID()}`,
+        }),
+      );
 
-    //----------------------------------
-    // Return
-    //----------------------------------
+      if (!channel.channel?.arn) {
+        throw new Error("Channel creation failed");
+      }
 
-    return new Response(
-      JSON.stringify({
+      const streamKey = await client.send(
+        new CreateStreamKeyCommand({
+          channelArn: channel.channel.arn,
+        }),
+      );
+
+      return Response.json({
         success: true,
         streamKey: streamKey.streamKey?.value,
         playbackUrl: channel.channel.playbackUrl,
         channelArn: channel.channel.arn,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-  } catch (err: any) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: err.message,
-      }),
-      {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-  }
-});
+      });
+    } catch (error) {
+      console.error("Live channel creation failed", error);
+      return Response.json(
+        { success: false, error: "Unable to create live channel" },
+        { status: 500 },
+      );
+    }
+  }),
+};

@@ -1,14 +1,22 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
+import { requireAdmin } from "../_shared/require-admin.ts";
 
 export default {
   fetch: withSupabase(
     {
+      auth: "user",
     },
 
     async (req, ctx) => {
 
       try {
+
+        const authorization = await requireAdmin(ctx);
+
+        if (!authorization.ok) {
+          return authorization.response;
+        }
 
         const { studentId } = await req.json();
 
